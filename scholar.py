@@ -1,3 +1,5 @@
+# Forked this from Christian 
+
 #! /usr/bin/env python
 """
 This module provides classes for querying Google Scholar and parsing
