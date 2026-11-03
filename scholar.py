@@ -1,4 +1,4 @@
-# Forked this from Christian 
+# Forked this from Christian Kriebich
 
 #! /usr/bin/env python
 """
