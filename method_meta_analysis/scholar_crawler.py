@@ -437,7 +437,7 @@ class ScholarArticleParser(object):
         self._parse_globals()
 
         # Now parse out listed articles:
-        for div in self.soup.findAll(ScholarArticleParser._tag_results_checker):
+        for div in self.soup.find_all(ScholarArticleParser._tag_results_checker):
             self._parse_article(div)
             self._clean_article()
             if self.article['title']:
@@ -455,17 +455,16 @@ class ScholarArticleParser(object):
     def _parse_globals(self):
         tag = self.soup.find(name='div', attrs={'id': 'gs_ab_md'})
         if tag is not None:
-            raw_text = tag.findAll(text=True)
-            # raw text is a list because the body contains <b> etc
-            if raw_text is not None and len(raw_text) > 0:
+            # Header reads "About 1,230 results" on page 1 but
+            # "Page 2 of about 1,230 results" later on, so look for the
+            # number right before "result(s)" instead of the 2nd word.
+            text = ' '.join(tag.get_text(' ').replace('\xa0', ' ').split())
+            match = re.search(r'([\d,.]+)\s+results?\b', text)
+            if match:
                 try:
-                    num_results = raw_text[0].split()[1]
-                    # num_results may now contain commas to separate
-                    # thousands, strip:
-                    num_results = num_results.replace(',', '')
-                    num_results = int(num_results)
+                    num_results = int(re.sub(r'[,.]', '', match.group(1)))
                     self.handle_num_results(num_results)
-                except (IndexError, ValueError):
+                except ValueError:
                     pass
 
     def _parse_article(self, div):
@@ -477,7 +476,7 @@ class ScholarArticleParser(object):
 
             if tag.name == 'div' and self._tag_has_class(tag, 'gs_rt') and \
                     tag.h3 and tag.h3.a:
-                self.article['title'] = ''.join(tag.h3.a.findAll(text=True))
+                self.article['title'] = ''.join(tag.h3.a.find_all(string=True))
                 self.article['url'] = self._path2url(tag.h3.a['href'])
                 if self.article['url'].endswith('.pdf'):
                     self.article['url_pdf'] = self.article['url']
@@ -587,7 +586,7 @@ class ScholarArticleParser120201(ScholarArticleParser):
                 continue
 
             if tag.name == 'h3' and self._tag_has_class(tag, 'gs_rt') and tag.a:
-                self.article['title'] = ''.join(tag.a.findAll(text=True))
+                self.article['title'] = ''.join(tag.a.find_all(string=True))
                 self.article['url'] = self._path2url(tag.a['href'])
                 if self.article['url'].endswith('.pdf'):
                     self.article['url_pdf'] = self.article['url']
@@ -648,15 +647,15 @@ class ScholarArticleParser120726(ScholarArticleParser):
                 # We now distinguish the two.
                 try:
                     atag = tag.h3.a
-                    self.article['title'] = ''.join(atag.findAll(text=True))
+                    self.article['title'] = ''.join(atag.find_all(string=True))
                     self.article['url'] = self._path2url(atag['href'])
                     if self.article['url'].endswith('.pdf'):
                         self.article['url_pdf'] = self.article['url']
                 except:
                     # Remove a few spans that have unneeded content (e.g. [CITATION])
-                    for span in tag.h3.findAll(name='span'):
+                    for span in tag.h3.find_all(name='span'):
                         span.clear()
-                    self.article['title'] = ''.join(tag.h3.findAll(text=True))
+                    self.article['title'] = ''.join(tag.h3.find_all(string=True))
 
                 if tag.find('div', {'class': 'gs_a'}):
                     self._parse_byline(tag.find('div', {'class': 'gs_a'}).get_text())
@@ -666,7 +665,7 @@ class ScholarArticleParser120726(ScholarArticleParser):
 
                 if tag.find('div', {'class': 'gs_rs'}):
                     # These are the content excerpts rendered into the results.
-                    raw_text = tag.find('div', {'class': 'gs_rs'}).findAll(text=True)
+                    raw_text = tag.find('div', {'class': 'gs_rs'}).find_all(string=True)
                     if len(raw_text) > 0:
                         raw_text = ''.join(raw_text)
                         self.article['excerpt'] = ' '.join(raw_text.split())
@@ -1408,9 +1407,14 @@ class ScholarCrawler(object):
                                             page * page_size + idx + 1,
                                             timestamp)
                     found += len(articles)
-
                     total = query['num_results']
-                    if len(articles) < page_size or \
+                    ScholarUtils.log('warn', '  %r page %d: %d results (Scholar reports %s total)'
+                                     % (keyword, page + 1, len(articles), total or '?'))
+
+                    # Stop early only if this page was empty or we've
+                    # passed Scholar's reported total. (A page can parse
+                    # to fewer than 10 entries and still have more after.)
+                    if not articles or \
                        (total and (page + 1) * page_size >= total):
                         break
 
@@ -1655,7 +1659,8 @@ scholar.py --crawl -k "soil carbon" -k '"cover crops"' --after 2015 \\
     if options.count is not None:
         options.count = min(options.count, ScholarConf.MAX_PAGE_RESULTS)
 
-    if options.crawl:
+    # Giving keywords implies crawler mode, even without --crawl.
+    if options.crawl or options.keyword or options.keywords_file:
         return crawl_main(options, querier, build_search_query)
 
     if options.cluster_id:
